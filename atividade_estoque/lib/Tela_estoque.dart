@@ -84,11 +84,23 @@ class _TelaEstoqueState extends State<TelaEstoque> {
   // Retira (delta negativo) ou repõe (delta positivo) um insumo.
   // Tudo que muda algo visível fica DENTRO do setState.
   void _alterar(Insumo insumo, double delta) {
+    // REGRA DE NEGÓCIO: Se for uma baixa e a quantidade for insuficiente, recusa com aviso.
+    if (delta < 0 && (insumo.quantidade + delta) < 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Baixa recusada: estoque de ${insumo.nome} insuficiente!'),
+            backgroundColor: const Color(0xFFC0392B),
+          ),
+        );
+      return;
+    }
+
     final estavaEmDia = !insumo.abaixoDoMinimo;
 
     setState(() {
-      final nova = insumo.quantidade + delta;
-      insumo.quantidade = nova < 0 ? 0.0 : nova; // nunca fica negativo
+      insumo.quantidade += delta;
     });
 
     // Se ESTE toque fez o insumo cruzar o mínimo, avisa.
