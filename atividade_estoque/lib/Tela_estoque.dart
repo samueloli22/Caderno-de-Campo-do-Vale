@@ -216,12 +216,25 @@ class _TelaEstoqueState extends State<TelaEstoque> {
                     itemCount: _insumos.length,
                     itemBuilder: (context, indice) {
                       final insumo = _insumos[indice];
-                      // Dismissible: arrastar para a esquerda remove.
+                      // Dismissible: arrastar para a esquerda ou direita remove.
                       // Precisa de uma key única por item.
                       return Dismissible(
                         key: ObjectKey(insumo),
-                        direction: DismissDirection.endToStart,
+                        // Permite deslizar tanto para a esquerda quanto para a direita
+                        direction: DismissDirection.horizontal,
+                        // Fundo ao deslizar da esquerda para a direita
                         background: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.only(left: 20),
+                          alignment: Alignment.centerLeft,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC0392B),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        // Fundo ao deslizar da direita para a esquerda
+                        secondaryBackground: Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.only(right: 20),
                           alignment: Alignment.centerRight,
@@ -231,11 +244,34 @@ class _TelaEstoqueState extends State<TelaEstoque> {
                           ),
                           child: const Icon(Icons.delete, color: Colors.white),
                         ),
+                        // Pergunta antes de confirmar a exclusão
+                        confirmDismiss: (direction) async {
+                          return await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Confirmar exclusão'),
+                              content: Text(
+                                  'Deseja realmente remover "${insumo.nome}" do estoque?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(context, false),
+                                  child: const Text('Cancelar'),
+                                ),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFFC0392B),
+                                  ),
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: const Text('Excluir'),
+                                ),
+                              ],
+                            ),
+                          ) ?? false;
+                        },
                         onDismissed: (_) => _remover(insumo),
                         child: _ItemEstoque(
                           insumo: insumo,
-                          // Callbacks: o item não altera o estoque sozinho;
-                          // ele AVISA a tela, que é a dona do estado.
                           onRetirar: () => _alterar(insumo, -insumo.passo),
                           onRepor: () => _alterar(insumo, insumo.passo),
                         ),
