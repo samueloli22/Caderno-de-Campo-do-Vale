@@ -257,7 +257,7 @@ class _TelaEstoqueState extends State<TelaEstoque> {
 }
 
 // =====================================================================
-// FORMULÁRIO DE NOVO INSUMO (mesmo padrão da Calculadora)
+// FORMULÁRIO DE NOVO INSUMO (Form + TextFormField + validator)
 // =====================================================================
 // É um StatefulWidget próprio porque tem controllers para criar e liberar.
 class _FormNovoInsumo extends StatefulWidget {
@@ -268,6 +268,8 @@ class _FormNovoInsumo extends StatefulWidget {
 }
 
 class _FormNovoInsumoState extends State<_FormNovoInsumo> {
+  // A chave que dá acesso ao estado do formulário.
+  final _formKey = GlobalKey<FormState>();
   final _nomeController = TextEditingController();
   final _unidadeController = TextEditingController();
   final _quantidadeController = TextEditingController();
@@ -275,7 +277,6 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
   final _passoController = TextEditingController();
 
   String _categoria = 'semente';
-  String? _erro;
 
   @override
   void dispose() {
@@ -287,38 +288,69 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
     super.dispose();
   }
 
-  void _salvar() {
-    final nome = _nomeController.text.trim();
-    final unidade = _unidadeController.text.trim();
-    final quantidade = _numero(_quantidadeController.text);
+  // ---- VALIDATORS REUTILIZÁVEIS ----
+  // Devolvem a mensagem de erro, ou null se o valor for válido.
+
+  String? _validarTexto(String? valor, String nomeCampo) {
+    if (valor == null || valor.trim().isEmpty) {
+      return 'Informe $nomeCampo';
+    }
+    return null;
+  }
+
+  // permiteZero: true para "Em estoque" (pode ser 0);
+  // false para mínimo e passo (precisam ser > 0).
+  String? _validarNumero(String? valor, String nomeCampo,
+      {bool permiteZero = false}) {
+    if (valor == null || valor.trim().isEmpty) {
+      return 'Informe $nomeCampo';
+    }
+    final numero = _numero(valor);
+    if (numero == null) {
+      return '$nomeCampo deve ser um número';
+    }
+    if (permiteZero ? numero < 0 : numero <= 0) {
+      return permiteZero
+          ? '$nomeCampo não pode ser negativo'
+          : '$nomeCampo deve ser maior que zero';
+    }
+    return null;
+  }
+
+  // Validator específico do passo: reaproveita o _validarNumero e
+  // depois confere a regra própria (passo não pode passar do mínimo).
+  String? _validarPasso(String? valor) {
+    // 1º: as regras gerais (vazio, não numérico, <= 0).
+    final erroGeral = _validarNumero(valor, 'o passo');
+    if (erroGeral != null) return erroGeral;
+
+    // 2º: a regra específica. Lê o campo "mínimo" pelo controller.
+    final passo = _numero(valor!)!;
     final minimo = _numero(_minimoController.text);
-    final passo = _numero(_passoController.text);
 
-    if (nome.isEmpty || unidade.isEmpty) {
-      setState(() => _erro = 'Informe o nome e a unidade do insumo.');
-      return;
+    // Se o mínimo ainda está vazio/inválido, ele mesmo vai mostrar erro;
+    // aqui só comparamos quando existe um mínimo válido.
+    if (minimo != null && minimo > 0 && passo > minimo) {
+      return 'O passo não pode ser maior que o mínimo '
+          '(${_formatar(minimo)})';
     }
-    if (quantidade == null || minimo == null || passo == null) {
-      setState(() =>
-          _erro = 'Preencha quantidade, mínimo e passo com números válidos.');
-      return;
-    }
-    if (quantidade < 0 || minimo <= 0 || passo <= 0) {
-      setState(() => _erro =
-          'A quantidade não pode ser negativa; mínimo e passo precisam ser maiores que zero.');
-      return;
-    }
+    return null;
+  }
 
-    // Tudo certo: fecha o formulário devolvendo o novo Insumo.
+  void _salvar() {
+    // Dispara TODOS os validators de uma vez.
+    if (!_formKey.currentState!.validate()) return;
+
+    // Se chegou aqui, todos os campos são válidos: os '!' são seguros.
     Navigator.pop(
       context,
       Insumo(
-        nome: nome,
+        nome: _nomeController.text.trim(),
         categoria: _categoria,
-        unidade: unidade,
-        minimo: minimo,
-        passo: passo,
-        quantidade: quantidade,
+        unidade: _unidadeController.text.trim(),
+        minimo: _numero(_minimoController.text)!,
+        passo: _numero(_passoController.text)!,
+        quantidade: _numero(_quantidadeController.text)!,
       ),
     );
   }
@@ -334,127 +366,118 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
         bottom: MediaQuery.of(context).viewInsets.bottom + 20,
       ),
       child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Novo insumo',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Novo insumo',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
 
-            _Campo(
-              controlador: _nomeController,
-              rotulo: 'Nome (ex.: Semente de soja)',
-              icone: Icons.label_outline,
-            ),
-            const SizedBox(height: 12),
-
-            // Categoria: um chip selecionável para cada opção.
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final c in _categorias)
-                  ChoiceChip(
-                    avatar: Icon(_iconeDaCategoria(c), size: 18),
-                    label: Text(c[0].toUpperCase() + c.substring(1)),
-                    selected: _categoria == c,
-                    onSelected: (_) => setState(() => _categoria = c),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            Row(
-              children: [
-                Expanded(
-                  child: _Campo(
-                    controlador: _quantidadeController,
-                    rotulo: 'Em estoque',
-                    icone: Icons.inventory_2_outlined,
-                    numerico: true,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _Campo(
-                    controlador: _unidadeController,
-                    rotulo: 'Unidade (sc, t, L)',
-                    icone: Icons.straighten,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            Row(
-              children: [
-                Expanded(
-                  child: _Campo(
-                    controlador: _minimoController,
-                    rotulo: 'Estoque mínimo',
-                    icone: Icons.warning_amber_rounded,
-                    numerico: true,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _Campo(
-                    controlador: _passoController,
-                    rotulo: 'Passo de − / +',
-                    icone: Icons.exposure,
-                    numerico: true,
-                  ),
-                ),
-              ],
-            ),
-
-            // Mensagem de erro (mesmo estilo da Calculadora).
-            if (_erro != null) ...[
+              _Campo(
+                controlador: _nomeController,
+                rotulo: 'Nome (ex.: Semente de soja)',
+                icone: Icons.label_outline,
+                validator: (v) => _validarTexto(v, 'o nome'),
+              ),
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFDECEA),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.error_outline, color: Color(0xFFB3261E)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(_erro!,
-                          style: const TextStyle(color: Color(0xFFB3261E))),
+
+              // Categoria: um chip selecionável para cada opção.
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final c in _categorias)
+                    ChoiceChip(
+                      avatar: Icon(_iconeDaCategoria(c), size: 18),
+                      label: Text(c[0].toUpperCase() + c.substring(1)),
+                      selected: _categoria == c,
+                      onSelected: (_) => setState(() => _categoria = c),
                     ),
-                  ],
-                ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // crossAxisAlignment.start: se só um campo da linha der erro,
+              // os dois continuam alinhados pelo topo.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _Campo(
+                      controlador: _quantidadeController,
+                      rotulo: 'Em estoque',
+                      icone: Icons.inventory_2_outlined,
+                      numerico: true,
+                      validator: (v) =>
+                          _validarNumero(v, 'a quantidade', permiteZero: true),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _Campo(
+                      controlador: _unidadeController,
+                      rotulo: 'Unidade (sc, t, L)',
+                      icone: Icons.straighten,
+                      validator: (v) => _validarTexto(v, 'a unidade'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _Campo(
+                      controlador: _minimoController,
+                      rotulo: 'Estoque mínimo',
+                      icone: Icons.warning_amber_rounded,
+                      numerico: true,
+                      validator: (v) => _validarNumero(v, 'o mínimo'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _Campo(
+                      controlador: _passoController,
+                      rotulo: 'Passo de − / +',
+                      icone: Icons.exposure,
+                      numerico: true,
+                      validator: _validarPasso,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _salvar,
+                      icon: const Icon(Icons.check),
+                      label: const Text('Salvar'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 20),
+                    ),
+                    child: const Text('Cancelar'),
+                  ),
+                ],
               ),
             ],
-
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _salvar,
-                    icon: const Icon(Icons.check),
-                    label: const Text('Salvar'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 20),
-                  ),
-                  child: const Text('Cancelar'),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -465,24 +488,27 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
 // WIDGETS AUXILIARES (sem estado: só desenham o que recebem)
 // =====================================================================
 
-// Campo reutilizável (texto ou número).
+// Campo reutilizável (texto ou número), agora com validator.
 class _Campo extends StatelessWidget {
   final TextEditingController controlador;
   final String rotulo;
   final IconData icone;
   final bool numerico;
+  final String? Function(String?)? validator;
 
   const _Campo({
     required this.controlador,
     required this.rotulo,
     required this.icone,
     this.numerico = false,
+    this.validator,
   });
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    return TextFormField(
       controller: controlador,
+      validator: validator,
       keyboardType: numerico
           ? const TextInputType.numberWithOptions(decimal: true)
           : TextInputType.text,
