@@ -146,6 +146,25 @@ class _TelaEstoqueState extends State<TelaEstoque> {
       );
   }
 
+  // Abre o formulário preenchido com os dados do insumo selecionado para edição.
+  Future<void> _abrirEdicao(Insumo insumo) async {
+    final editado = await showModalBottomSheet<Insumo>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _FormNovoInsumo(insumoExistente: insumo),
+    );
+
+    if (!mounted) return;
+    if (editado != null) {
+      setState(() {
+        final indice = _insumos.indexOf(insumo);
+        if (indice != -1) {
+          _insumos[indice] = editado;
+        }
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Recalculado a cada build: sempre reflete o estoque atual.
@@ -272,8 +291,11 @@ class _TelaEstoqueState extends State<TelaEstoque> {
                         onDismissed: (_) => _remover(insumo),
                         child: _ItemEstoque(
                           insumo: insumo,
+                          // Callbacks: o item não altera o estoque sozinho;
+                          // ele AVISA a tela, que é a dona do estado.
                           onRetirar: () => _alterar(insumo, -insumo.passo),
                           onRepor: () => _alterar(insumo, insumo.passo),
+                          onTap: () => _abrirEdicao(insumo),
                         ),
                       );
                     },
@@ -293,11 +315,13 @@ class _TelaEstoqueState extends State<TelaEstoque> {
 }
 
 // =====================================================================
-// FORMULÁRIO DE NOVO INSUMO (Form + TextFormField + validator)
+// FORMULÁRIO DE INSUMO (Novo ou Edição)
 // =====================================================================
 // É um StatefulWidget próprio porque tem controllers para criar e liberar.
 class _FormNovoInsumo extends StatefulWidget {
-  const _FormNovoInsumo();
+  final Insumo? insumoExistente; // null = Novo | com valor = Edição
+
+  const _FormNovoInsumo({super.key, this.insumoExistente});
 
   @override
   State<_FormNovoInsumo> createState() => _FormNovoInsumoState();
@@ -313,6 +337,24 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
   final _passoController = TextEditingController();
 
   String _categoria = 'semente';
+
+  // Getter para saber se estamos editando um insumo existente ou criando um novo
+  bool get _editando => widget.insumoExistente != null;
+
+  @override
+  void initState() {
+    super.initState();
+    // Se estiver editando, preenche os controllers com os dados atuais do insumo
+    if (_editando) {
+      final item = widget.insumoExistente!;
+      _nomeController.text = item.nome;
+      _unidadeController.text = item.unidade;
+      _quantidadeController.text = _formatar(item.quantidade);
+      _minimoController.text = _formatar(item.minimo);
+      _passoController.text = _formatar(item.passo);
+      _categoria = item.categoria;
+    }
+  }
 
   @override
   void dispose() {
@@ -408,8 +450,8 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Novo insumo',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(_editando ? 'Editar insumo' : 'Novo insumo',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
 
               _Campo(
@@ -495,7 +537,7 @@ class _FormNovoInsumoState extends State<_FormNovoInsumo> {
                     child: FilledButton.icon(
                       onPressed: _salvar,
                       icon: const Icon(Icons.check),
-                      label: const Text('Salvar'),
+                      label: Text(_editando ? 'Salvar alterações' : 'Salvar'),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
@@ -631,11 +673,13 @@ class _ItemEstoque extends StatelessWidget {
   final Insumo insumo;
   final VoidCallback onRetirar;
   final VoidCallback onRepor;
+  final VoidCallback onTap;
 
   const _ItemEstoque({
     required this.insumo,
     required this.onRetirar,
     required this.onRepor,
+    required this.onTap,
   });
 
   @override
@@ -647,84 +691,87 @@ class _ItemEstoque extends StatelessWidget {
     // Logo, o meio da barra é exatamente o limite do mínimo.
     final nivel = (insumo.quantidade / (insumo.minimo * 2)).clamp(0.0, 1.0);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: emAlerta ? const Color(0xFFFDEDEC) : null,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: emAlerta ? cor : Colors.transparent, width: 2),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            // Linha de cima: ícone, nome + mínimo, quantidade.
-            Row(
-              children: [
-                Icon(_iconeDaCategoria(insumo.categoria), color: cor, size: 32),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(insumo.nome,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold)),
-                      Text(
-                        emAlerta
-                            ? 'ABAIXO DO MÍNIMO (${_formatar(insumo.minimo)} ${insumo.unidade})'
-                            : 'Mínimo: ${_formatar(insumo.minimo)} ${insumo.unidade}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: emAlerta ? cor : Colors.black54,
-                          fontWeight:
-                              emAlerta ? FontWeight.bold : FontWeight.normal,
+    return GestureDetector(
+      onTap: onTap,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        color: emAlerta ? const Color(0xFFFDEDEC) : null,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: emAlerta ? cor : Colors.transparent, width: 2),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              // Linha de cima: ícone, nome + mínimo, quantidade.
+              Row(
+                children: [
+                  Icon(_iconeDaCategoria(insumo.categoria), color: cor, size: 32),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(insumo.nome,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text(
+                          emAlerta
+                              ? 'ABAIXO DO MÍNIMO (${_formatar(insumo.minimo)} ${insumo.unidade})'
+                              : 'Mínimo: ${_formatar(insumo.minimo)} ${insumo.unidade}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: emAlerta ? cor : Colors.black54,
+                            fontWeight:
+                                emAlerta ? FontWeight.bold : FontWeight.normal,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${_formatar(insumo.quantidade)} ${insumo.unidade}',
-                  style: TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.bold, color: cor),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // Linha de baixo: barra de nível + botões grandes (toque fácil).
-            Row(
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: nivel,
-                      minHeight: 10,
-                      color: cor,
-                      backgroundColor: Colors.black12,
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                IconButton.filled(
-                  onPressed: onRetirar,
-                  tooltip:
-                      'Retirar ${_formatar(insumo.passo)} ${insumo.unidade}',
-                  iconSize: 28,
-                  icon: const Icon(Icons.remove),
-                ),
-                const SizedBox(width: 4),
-                IconButton.filled(
-                  onPressed: onRepor,
-                  tooltip: 'Repor ${_formatar(insumo.passo)} ${insumo.unidade}',
-                  iconSize: 28,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_formatar(insumo.quantidade)} ${insumo.unidade}',
+                    style: TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.bold, color: cor),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Linha de baixo: barra de nível + botões grandes (toque fácil).
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: nivel,
+                        minHeight: 10,
+                        color: cor,
+                        backgroundColor: Colors.black12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton.filled(
+                    onPressed: onRetirar,
+                    tooltip:
+                        'Retirar ${_formatar(insumo.passo)} ${insumo.unidade}',
+                    iconSize: 28,
+                    icon: const Icon(Icons.remove),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton.filled(
+                    onPressed: onRepor,
+                    tooltip: 'Repor ${_formatar(insumo.passo)} ${insumo.unidade}',
+                    iconSize: 28,
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
